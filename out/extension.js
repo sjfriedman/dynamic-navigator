@@ -35,12 +35,12 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.deactivate = exports.activate = void 0;
 const vscode = __importStar(require("vscode"));
 const fs = __importStar(require("fs"));
-// In-memory index: attrName -> Location
+// In-memory index: attrName -> array of Locations
 const originIndex = new Map();
 // Glob patterns to exclude from indexing
-const excludeGlob = '**/{**/venv/**,**/env/**,**/__pycache__/**,**/.env/**}';
+const excludeGlob = '**/{**/venv/**,**/env/**,**/.venv/**,**/__pycache__/**,**/.pytest_cache/**,**/tox/**,**/.env/**}';
 function activate(context) {
-    // Initial indexing of workspace Python files
+    // Initial indexing of all Python files
     indexWorkspace();
     // Re-index on save of any Python file
     vscode.workspace.onDidSaveTextDocument(doc => {
@@ -48,39 +48,44 @@ function activate(context) {
             indexWorkspace();
         }
     });
-    // Register Go to Origin
-    context.subscriptions.push(vscode.commands.registerCommand('dynamicNavigator.gotoOrigin', () => {
-        navigateToOrigin(false);
-    }));
-    // Register Peek Origin
-    context.subscriptions.push(vscode.commands.registerCommand('dynamicNavigator.peekOrigin', () => {
-        navigateToOrigin(true);
-    }));
+    // Register commands
+    context.subscriptions.push(vscode.commands.registerCommand('dynamicNavigator.gotoOrigin', () => navigateToOrigin(false)));
+    context.subscriptions.push(vscode.commands.registerCommand('dynamicNavigator.peekOrigin', () => navigateToOrigin(true)));
 }
 exports.activate = activate;
 function indexWorkspace() {
-    originIndex.clear();
-    const folders = vscode.workspace.workspaceFolders;
-    if (!folders)
-        return;
-    // Include all .py files, exclude venv, env, __pycache__, and .env directories
-    vscode.workspace.findFiles('**/*.py', excludeGlob).then(uris => {
-        uris.forEach(uri => indexFile(uri));
+    return __awaiter(this, void 0, void 0, function* () {
+        originIndex.clear();
+        const uris = yield vscode.workspace.findFiles('**/*.py', excludeGlob);
+        // Sort files for deterministic first-occurrence ordering
+        uris.sort((a, b) => a.fsPath.localeCompare(b.fsPath));
+        for (const uri of uris) {
+            indexFile(uri);
+        }
     });
 }
 function indexFile(uri) {
-    fs.readFile(uri.fsPath, 'utf8', (err, data) => {
-        if (err)
-            return;
-        data.split(/\r?\n/).forEach((line, idx) => {
-            // Match dynamic attribute assignment or annotation: self.attr = ... or self.attr: ...
-            const match = line.match(/self\.(\w+)\s*(?:=|:)/);
-            if (match) {
-                const attr = match[1];
-                const charIndex = line.indexOf(match[0]);
-                originIndex.set(attr, new vscode.Location(uri, new vscode.Position(idx, charIndex)));
+    let data;
+    try {
+        data = fs.readFileSync(uri.fsPath, 'utf8');
+    }
+    catch (_a) {
+        return;
+    }
+    data.split(/\r?\n/).forEach((line, idx) => {
+        // Match dynamic attribute assignment or annotation
+        const match = line.match(/self\.(\w+)\s*(?:=|:)/);
+        if (match) {
+            const attr = match[1];
+            const charIndex = line.indexOf(match[0]);
+            const loc = new vscode.Location(uri, new vscode.Position(idx, charIndex));
+            const arr = originIndex.get(attr) || [];
+            // Only record the first location per file to avoid duplicates
+            if (!arr.find(e => e.uri.fsPath === loc.uri.fsPath && e.range.start.line === loc.range.start.line)) {
+                arr.push(loc);
+                originIndex.set(attr, arr);
             }
-        });
+        }
     });
 }
 function navigateToOrigin(peek) {
@@ -88,24 +93,56 @@ function navigateToOrigin(peek) {
         const editor = vscode.window.activeTextEditor;
         if (!editor)
             return;
-        const wordRange = editor.document.getWordRangeAtPosition(editor.selection.active, /\w+/);
+        const doc = editor.document;
+        const position = editor.selection.active;
+        const wordRange = doc.getWordRangeAtPosition(position, /\w+/);
         if (!wordRange)
             return;
-        const attr = editor.document.getText(wordRange);
-        const location = originIndex.get(attr);
-        if (!location) {
+        const attr = doc.getText(wordRange);
+        const locations = originIndex.get(attr) || [];
+        if (locations.length === 0) {
             vscode.window.showWarningMessage(`No origin found for '${attr}'.`);
             return;
         }
+        // Automatically pick the most relevant origin without prompting
+        let target = locations[0];
+        if (locations.length > 1) {
+            // 1) Prefer the origin in the same file
+            const currentFile = doc.uri.fsPath;
+            const sameFile = locations.find(loc => loc.uri.fsPath === currentFile);
+            if (sameFile) {
+                target = sameFile;
+            }
+            else {
+                // 2) Prefer the origin within the same enclosing class
+                const symbols = yield vscode.commands.executeCommand('vscode.executeDocumentSymbolProvider', doc.uri);
+                if (symbols) {
+                    // Recursive search for containing class
+                    function findClass(symList) {
+                        for (const sym of symList) {
+                            if (sym.kind === vscode.SymbolKind.Class && sym.range.contains(position)) {
+                                return sym;
+                            }
+                            const inner = findClass(sym.children);
+                            if (inner)
+                                return inner;
+                        }
+                    }
+                    const cls = findClass(symbols);
+                    if (cls) {
+                        const inClass = locations.find(loc => loc.uri.fsPath === doc.uri.fsPath && cls.range.contains(loc.range.start));
+                        if (inClass) {
+                            target = inClass;
+                        }
+                    }
+                }
+            }
+        }
         if (peek) {
-            // Inline peek of the origin location
-            yield vscode.commands.executeCommand('editor.action.peekLocations', editor.document.uri, editor.selection.active, [location], 'peek');
+            yield vscode.commands.executeCommand('editor.action.peekLocations', doc.uri, position, [target], 'peek');
         }
         else {
-            // Navigate directly to the origin location
-            yield vscode.window.showTextDocument(location.uri, {
-                selection: location.range
-            });
+            yield vscode.window.showTextDocument(target.uri, { selection: target.range });
         }
     });
 }
