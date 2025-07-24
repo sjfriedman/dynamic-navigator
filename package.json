@@ -2,7 +2,7 @@
   "name": "dynamic-navigator",
   "displayName": "Dynamic Navigator",
   "description": "Jump from dynamic Python attributes (self.*) back to their first assignment using simple indexing.",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "publisher": "SamuelFriedman",
   "license": "MIT",
   "repository": {
