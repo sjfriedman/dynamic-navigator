@@ -2,7 +2,7 @@
   "name": "dynamic-navigator",
   "displayName": "Dynamic Navigator",
   "description": "Jump from dynamic Python attributes (self.*) back to their first assignment using simple indexing.",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "publisher": "SamuelFriedman",
   "license": "MIT",
   "repository": {
@@ -30,6 +30,7 @@
       ]
     },
     "keybindings": [
+      { "command": "dynamicNavigator.peekOrigin", "key": "ctrl+i", "mac": "ctrl+i", "when": "editorTextFocus && editorLangId == 'python'" },
       { "command": "dynamicNavigator.gotoOrigin", "key": "alt+o", "mac": "option+o", "when": "editorTextFocus && editorLangId == 'python'" },
       { "command": "dynamicNavigator.peekOrigin", "key": "ctrl+alt+i", "mac": "ctrl+option+i", "when": "editorTextFocus && editorLangId == 'python'" }
     ]

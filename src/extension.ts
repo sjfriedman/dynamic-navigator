@@ -46,6 +46,11 @@ function indexFile(uri: vscode.Uri) {
     const match = line.match(/self\.(\w+)\s*(?:=|:)/);
     if (match) {
       const attr = match[1];
+      // Skip re-assignments that reference the attribute itself
+      const skipRegex = new RegExp(`self\.${attr}\s*=.*self\.${attr}`);
+      if (skipRegex.test(line)) {
+        return;
+      }
       const charIndex = line.indexOf(match[0]);
       const loc = new vscode.Location(uri, new vscode.Position(idx, charIndex));
       const arr = originIndex.get(attr) || [];
