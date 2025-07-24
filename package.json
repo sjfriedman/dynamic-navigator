@@ -1,15 +1,16 @@
 {
   "name": "dynamic-navigator",
   "displayName": "Dynamic Navigator",
+  "description": "Jump from dynamic Python attributes (self.*) back to their first assignment using AST + text heuristics.",
+  "version": "0.1.4",
   "publisher": "SamuelFriedman",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/sjfriedman/dynamic-navigator.git"
   },
-  "license": "MIT",
-  "version": "0.1.0",
   "engines": {
-    "vscode": "^1.102.0"
+    "vscode": "^1.60.0"
   },
   "main": "./out/extension.js",
   "activationEvents": [
@@ -19,37 +20,29 @@
   ],
   "contributes": {
     "commands": [
-      {
-        "command": "dynamicNavigator.gotoOrigin",
-        "title": "Dynamic Navigator: Go to Origin"
-      },
-      {
-        "command": "dynamicNavigator.peekOrigin",
-        "title": "Dynamic Navigator: Peek Origin"
-      }
+      { "command": "dynamicNavigator.gotoOrigin", "title": "Dynamic Navigator: Go to Origin" },
+      { "command": "dynamicNavigator.peekOrigin", "title": "Dynamic Navigator: Peek Origin" }
     ],
     "menus": {
       "editor/context": [
-        {
-          "when": "editorLangId == python",
-          "command": "dynamicNavigator.gotoOrigin",
-          "group": "navigation"
-        },
-        {
-          "when": "editorLangId == python",
-          "command": "dynamicNavigator.peekOrigin",
-          "group": "navigation"
-        }
+        { "when": "editorLangId == python", "command": "dynamicNavigator.gotoOrigin", "group": "navigation" },
+        { "when": "editorLangId == python", "command": "dynamicNavigator.peekOrigin", "group": "navigation" }
       ]
-    }
+    },
+    "keybindings": [
+      { "command": "dynamicNavigator.gotoOrigin", "key": "alt+o", "mac": "option+o", "when": "editorTextFocus && editorLangId == 'python'" },
+      { "command": "dynamicNavigator.peekOrigin", "key": "ctrl+alt+i", "mac": "ctrl+option+i", "when": "editorTextFocus && editorLangId == 'python'" }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./"
   },
   "devDependencies": {
-    "@types/node": "^24.1.0",
-    "@types/vscode": "^1.102.0",
-    "typescript": "^4.4.3"
+    "@types/vscode": "^1.60.0",
+    "@types/node": "^18.0.0",
+    "typescript": "^4.5.0",
+    "lezer-python": "^0.19.2",
+    "@lezer/common": "^0.19.2"
   }
 }

@@ -1,28 +1,31 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 
-// In-memory index: attrName → Location
-let originIndex = new Map<string, vscode.Location>();
+// In-memory index: attrName -> Location
+const originIndex = new Map<string, vscode.Location>();
+
+// Glob patterns to exclude from indexing
+const excludeGlob = '**/{**/venv/**,**/env/**,**/__pycache__/**,**/.env/**}';
 
 export function activate(context: vscode.ExtensionContext) {
-  // Initial index of all Python files
+  // Initial indexing of workspace Python files
   indexWorkspace();
 
-  // Re-index on every save
+  // Re-index on save of any Python file
   vscode.workspace.onDidSaveTextDocument(doc => {
     if (doc.languageId === 'python') {
-      indexFile(doc.uri);
+      indexWorkspace();
     }
   });
 
-  // Go to Origin
+  // Register Go to Origin
   context.subscriptions.push(
     vscode.commands.registerCommand('dynamicNavigator.gotoOrigin', () => {
       navigateToOrigin(false);
     })
   );
 
-  // Peek Origin
+  // Register Peek Origin
   context.subscriptions.push(
     vscode.commands.registerCommand('dynamicNavigator.peekOrigin', () => {
       navigateToOrigin(true);
@@ -32,24 +35,28 @@ export function activate(context: vscode.ExtensionContext) {
 
 function indexWorkspace() {
   originIndex.clear();
-  const pattern = new vscode.RelativePattern(
-    vscode.workspace.workspaceFolders![0],
-    '**/*.py'
-  );
-  vscode.workspace.findFiles(pattern).then(uris => {
+  const folders = vscode.workspace.workspaceFolders;
+  if (!folders) return;
+
+  // Include all .py files, exclude venv, env, __pycache__, and .env directories
+  vscode.workspace.findFiles('**/*.py', excludeGlob).then(uris => {
     uris.forEach(uri => indexFile(uri));
   });
 }
 
 function indexFile(uri: vscode.Uri) {
-  fs.readFile(uri.fsPath, 'utf8', (err, data) => {
-    if (err) { return; }
-    data.split(/\r?\n/).forEach((line, i) => {
-      const m = line.match(/self\.(\w+)\s*=/);
-      if (m) {
-        const attr = m[1];
-        const char = line.indexOf(m[0]);
-        originIndex.set(attr, new vscode.Location(uri, new vscode.Position(i, char)));
+  fs.readFile(uri.fsPath, 'utf8', (err: NodeJS.ErrnoException | null, data: string) => {
+    if (err) return;
+    data.split(/\r?\n/).forEach((line, idx) => {
+      // Match dynamic attribute assignment or annotation: self.attr = ... or self.attr: ...
+      const match = line.match(/self\.(\w+)\s*(?:=|:)/);
+      if (match) {
+        const attr = match[1];
+        const charIndex = line.indexOf(match[0]);
+        originIndex.set(
+          attr,
+          new vscode.Location(uri, new vscode.Position(idx, charIndex))
+        );
       }
     });
   });
@@ -57,29 +64,37 @@ function indexFile(uri: vscode.Uri) {
 
 async function navigateToOrigin(peek: boolean) {
   const editor = vscode.window.activeTextEditor;
-  if (!editor) { return; }
+  if (!editor) return;
+
   const wordRange = editor.document.getWordRangeAtPosition(
     editor.selection.active,
     /\w+/
   );
-  if (!wordRange) { return; }
+  if (!wordRange) return;
+
   const attr = editor.document.getText(wordRange);
-  const loc = originIndex.get(attr);
-  if (!loc) {
-    vscode.window.showWarningMessage(`No origin found for '${attr}'.`);
+  const location = originIndex.get(attr);
+  if (!location) {
+    vscode.window.showWarningMessage(
+      `No origin found for '${attr}'.`
+    );
     return;
   }
 
   if (peek) {
-    vscode.commands.executeCommand(
+    // Inline peek of the origin location
+    await vscode.commands.executeCommand(
       'editor.action.peekLocations',
       editor.document.uri,
       editor.selection.active,
-      [loc],
+      [location],
       'peek'
     );
   } else {
-    vscode.window.showTextDocument(loc.uri, { selection: loc.range });
+    // Navigate directly to the origin location
+    await vscode.window.showTextDocument(location.uri, {
+      selection: location.range
+    });
   }
 }
 
